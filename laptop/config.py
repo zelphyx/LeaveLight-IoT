@@ -34,6 +34,11 @@ def load_config(env_file: str | None = None) -> dict:
     if config.get("MQTT_PASSWORD") and not config.get("HIVEMQ_PASSWORD"):
         config["HIVEMQ_PASSWORD"] = config["MQTT_PASSWORD"]
 
+    # Bila masih memakai placeholder yourcluster, alihkan ke public broker agar tidak Not authorized
+    cluster_url = config.get("HIVEMQ_CLUSTER_URL", "")
+    if not cluster_url or "yourcluster" in cluster_url:
+        config["HIVEMQ_CLUSTER_URL"] = config.get("MQTT_HOST") or "broker.hivemq.com"
+
     defaults = _defaults()
     merged = {**defaults, **{k: v for k, v in config.items() if v != ""}}
     return _coerce(merged)
@@ -41,7 +46,7 @@ def load_config(env_file: str | None = None) -> dict:
 
 def _defaults() -> dict:
     return {
-        "HIVEMQ_CLUSTER_URL": "",
+        "HIVEMQ_CLUSTER_URL": "broker.hivemq.com",
         "HIVEMQ_PORT": "8883",
         "HIVEMQ_USERNAME": "",
         "HIVEMQ_PASSWORD": "",

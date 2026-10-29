@@ -8,6 +8,7 @@ import json
 import logging
 import threading
 import time
+import uuid
 from datetime import datetime
 
 import paho.mqtt.client as mqtt
@@ -25,7 +26,7 @@ class PhoneMqttClient:
         self.control_handler = None  # callable(command, request_id, config_patch) -> (accepted, reason)
         self._client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
-            client_id=f"leavelight_phone_{config['DEVICE_ID']}",
+            client_id=f"leavelight_phone_{config['DEVICE_ID']}_{uuid.uuid4().hex[:6]}",
         )
         if config.get("HIVEMQ_USERNAME"):
             self._client.username_pw_set(config["HIVEMQ_USERNAME"], config.get("HIVEMQ_PASSWORD", ""))
