@@ -135,7 +135,7 @@ Urutan evaluasi setiap pesan valid: kesegaran data -> jadwal -> kondisi gabungan
 
 | Kondisi | Status | Tindakan |
 |---|---|---|
-| Pesan tidak valid atau umur melebihi DATA_TIMEOUT | SENSOR/KONEKSI BERMASALAH | Jangan simpulkan kondisi ruangan, catat alasan |
+| Pesan tidak valid, ada flag validitas false, atau umur melebihi DATA_TIMEOUT | SENSOR/KONEKSI BERMASALAH | Jangan simpulkan kondisi ruangan, catat alasan |
 | Di luar jam operasional | STANDBY | Tetap catat data bila pemantauan aktif, tidak evaluasi alert |
 | Dalam jendela evaluasi tapi jam operasional belum lewat | PEMANTAUAN | Tampilkan pembacaan tanpa alert |
 | Setelah jam operasional, lux di atas ambang dan sound di bawah ambang selama CONFIRMATION_WINDOW interval berturut-turut | PERIKSA RUANGAN | Buat event, tampilkan peringatan untuk pemeriksaan manual |
@@ -165,7 +165,7 @@ Kredensial `HIVEMQ_CLUSTER_URL`, `HIVEMQ_PORT`, `HIVEMQ_USERNAME`, `HIVEMQ_PASSW
 
 - HP gagal baca sensor: kirim lux null dengan `valid_light = false`, laptop menampilkan status bermasalah, bukan normal.
 - HP gagal rekam atau decode: `valid_audio = false`, audio dilewati, telemetri cahaya tetap dikirim.
-- MQTT putus di HP: retry dengan backoff, buffer bacaan terakhir tidak dikirim ganda, timestamp menunjukkan gap.
+- MQTT putus di HP: retry dengan backoff. Setelah tersambung kembali, HP lanjut dari pembacaan baru; bacaan selama putus tidak dikirim ulang, jadi laptop akan melihat gap timestamp dan menandai periode itu stale.
 - Perintah kontrol tak dikenali atau config invalid: ack `accepted: false` berisi alasan, dashboard menampilkan alasan (UC-05).
 - Broker unreachable dari laptop: dashboard menampilkan banner koneksi, status terakhir dibekukan dengan label stale, tidak ada alert baru dari data lama.
 
