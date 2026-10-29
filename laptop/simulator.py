@@ -11,11 +11,22 @@ Pemakaian:
 import argparse
 import json
 import random
+import sys
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+_repo_root = Path(__file__).resolve().parent.parent
+_laptop_dir = Path(__file__).resolve().parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+if str(_laptop_dir) not in sys.path:
+    sys.path.insert(0, str(_laptop_dir))
+for _sp in _repo_root.glob(".venv/lib/python*/site-packages"):
+    if str(_sp) not in sys.path:
+        sys.path.insert(0, str(_sp))
 
 import paho.mqtt.client as mqtt
-
 from config import topics
 
 
@@ -62,11 +73,25 @@ def main() -> None:
         return
     t = topics(config)
 
+    import uuid
+    import threading
+
+    client = mqtt.Client(
+        mqtt.CallbackAPIVersion.VERSION2,
+        client_id=f"leavelight_sim_{uuid.uuid4().hex[:6]}"
+    )
     if config.get("HIVEMQ_USERNAME"):
         client.username_pw_set(config["HIVEMQ_USERNAME"], config.get("HIVEMQ_PASSWORD", ""))
     is_tls = str(config.get("MQTT_TLS", "true")).lower() in ("true", "1", "yes")
     if is_tls:
         client.tls_set()
+
+    connected_evt = threading.Event()
+    def on_connect(c, ud, flags, rc, prop=None):
+        if rc == 0:
+            connected_evt.set()
+    client.on_connect = on_connect
+
     try:
         client.connect(config["HIVEMQ_CLUSTER_URL"], config["HIVEMQ_PORT"], keepalive=60)
         client.loop_start()
@@ -74,18 +99,25 @@ def main() -> None:
         print(f"Gagal menyambung ke broker HiveMQ: {exc}")
         return
 
-    print(f"mengirim {args.count} pesan skenario {args.scenario} "
+    print("Menghubungkan ke broker MQTT...")
+    if not connected_evt.wait(timeout=8):
+        print("Peringatan: Timeout menunggu konfirmasi sambungan broker.")
+
+    print(f"Mengirim {args.count} pesan skenario '{args.scenario}' "
           f"ke {t['telemetry']} setiap {args.interval}s")
     for seq in range(1, args.count + 1):
-        now = datetime.now(timezone(timedelta(hours=7)))
+        now = datetime.now().astimezone()
         message = build_message(args.scenario, seq, now)
-        client.publish(t["telemetry"], json.dumps(message), qos=1)
+        pub_result = client.publish(t["telemetry"], json.dumps(message), qos=1)
+        pub_result.wait_for_publish(timeout=4)
         print(f"  [{seq}/{args.count}] lux={message['lux']} sound={message['sound_level_relative']}")
-        time.sleep(args.interval)
+        if seq < args.count:
+            time.sleep(args.interval)
 
+    time.sleep(1)
     client.loop_stop()
     client.disconnect()
-    print("selesai")
+    print("Selesai dikirim.")
 
 
 if __name__ == "__main__":
