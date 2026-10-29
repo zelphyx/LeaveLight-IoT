@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LeaveLight IoT - Pemantauan Ruangan & Energi</title>
+  <meta name="description" content="Dashboard pemantauan IoT pintar LeaveLight berbasis sensor cahaya dan level suara relatif untuk deteksi ruangan kosong pasca jam operasional.">
+  <link rel="stylesheet" href="/static/style.css">
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js" onerror="window.chartCdnFailed = true;"></script>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="brand-wrapper">
+      <div class="brand-icon" aria-hidden="true">💡</div>
+      <div class="brand-title">
+        <h1>LeaveLight IoT <span>Dashboard</span></h1>
+        <p>Sistem Pengawas Ruangan Otomatis & Konservasi Energi</p>
+      </div>
+    </div>
+
+    <div class="header-meta">
+      <span id="badge-broker" class="badge ok">
+        <span class="live-dot pulse"></span>
+        <span id="text-broker">Broker: Menghubungkan...</span>
+      </span>
+      <span id="badge-device" class="badge standby">
+        <span id="text-device">HP: Menunggu Data</span>
+      </span>
+      <span id="badge-simulation" class="badge warn hidden">
+        <span>MODE SIMULASI</span>
+      </span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Hero Status Ruangan -->
+    <section id="section-status" class="card status-hero" data-status="STANDBY">
+      <div class="card-header-flex">
+        <h2>Status Ruangan Terkini</h2>
+        <span id="badge-status-pill" class="badge standby">STANDBY</span>
+      </div>
+
+      <div class="hero-main-row">
+        <div>
+          <div id="val-status-main" class="status-main">STANDBY</div>
+          <p id="val-status-reason" class="status-reason">Memulai koneksi ke sistem laptop...</p>
+        </div>
+      </div>
+
+      <!-- Streak Progress Bar -->
+      <div class="streak-container">
+        <div class="streak-label-row">
+          <span>Konfirmasi Alert (Ambang Terpenuhi):</span>
+          <span id="text-streak-counter">0 / 3 Interval</span>
+        </div>
+        <div class="streak-bar">
+          <div id="bar-streak-fill" class="streak-fill"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Stat Cards Grid -->
+    <section class="grid-4">
+      <div class="card stat-card">
+        <span class="stat-label">Sensor Cahaya (Lux)</span>
+        <div>
+          <span id="val-lux" class="stat-value">--</span>
+          <span class="stat-unit">lx</span>
+        </div>
+        <div class="stat-sub">
+          <span>Smooth: <b id="val-lux-smooth">--</b> lx</span>
+          <span>Ambang: <b id="val-lux-threshold">--</b> lx</span>
+        </div>
+      </div>
+
+      <div class="card stat-card">
+        <span class="stat-label">Level Suara Relatif</span>
+        <div>
+          <span id="val-sound" class="stat-value">--</span>
+          <span class="stat-unit">RMS</span>
+        </div>
+        <div class="stat-sub">
+          <span>Ambang: <b id="val-sound-threshold">--</b></span>
+          <span class="muted">Bukan dB (NFR-01)</span>
+        </div>
+      </div>
+
+      <div class="card stat-card">
+        <span class="stat-label">Kesegaran Data</span>
+        <div>
+          <span id="val-data-age" class="stat-value">--</span>
+          <span class="stat-unit">detik lalu</span>
+        </div>
+        <div class="stat-sub">
+          <span>Diterima: <b id="val-last-received">--:--:--</b></span>
+          <span id="badge-freshness" class="badge ok">Segar</span>
+        </div>
+      </div>
+
+      <div class="card stat-card">
+        <span class="stat-label">Jam Operasional</span>
+        <div>
+          <span id="val-schedule" class="stat-value" style="font-size: 22px;">--:-- - --:--</span>
+        </div>
+        <div class="stat-sub">
+          <span>Status: <b id="val-schedule-state">--</b></span>
+          <span>Window: <b id="val-window-size">--</b>x</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Grafik Deret Waktu & Fallback Tabel -->
+    <section class="card">
+      <div class="card-header-flex">
+        <div>
+          <h2>Grafik Telemetri Real-Time</h2>
+          <div class="card-subtext">Deret waktu sensor cahaya (Lux) dan level suara relatif</div>
+        </div>
+        <button id="btn-toggle-table" class="chart-fallback-toggle" type="button">
+          Tampilkan Tabel Fallback
+        </button>
+      </div>
+
+      <!-- Container Chart.js -->
+      <div id="chart-wrapper" class="chart-container">
+        <canvas id="telemetryChart"></canvas>
+      </div>
+
+      <!-- Fallback Data Table (bila CDN unreachable / toggle) -->
+      <div id="table-telemetry-fallback" class="table-wrap hidden">
+        <table>
+          <thead>
+            <tr>
+              <th>Waktu Diterima</th>
+              <th>Lux Mentah</th>
+              <th>Lux Smooth</th>
+              <th>Level Suara Relatif</th>
+              <th>Validitas</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-telemetry-history">
+            <tr><td colspan="6" class="muted" style="text-align: center;">Memuat riwayat telemetri...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Riwayat Event PERIKSA RUANGAN -->
+    <section class="card">
+      <div class="card-header-flex">
+        <div>
+          <h2>Riwayat Event PERIKSA RUANGAN</h2>
+          <div class="card-subtext">Daftar peringatan ruangan kosong saat lampu menyala pasca jam kerja</div>
+        </div>
+        <span id="badge-event-count" class="badge warn">0 Event</span>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Waktu Alert</th>
+              <th>Device</th>
+              <th>Lux</th>
+              <th>Level Suara</th>
+              <th>Alasan & Catatan</th>
+              <th>Status Periksa</th>
+              <th>Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-events">
+            <tr><td colspan="8" class="muted" style="text-align: center;">Belum ada event tercatat.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Kontrol Perangkat & Konfigurasi -->
+    <div class="grid-2">
+      <!-- Remote Control HP -->
+      <section class="card">
+        <h2>Kontrol Pemantauan HP</h2>
+        <p class="muted">Kirim perintah START / STOP ke HP pengukur via kanal MQTT control.</p>
+        
+        <div class="controls-button-group">
+          <button id="btn-ctrl-start" class="btn-start" type="button">
+            ▶ START Pemantauan
+          </button>
+          <button id="btn-ctrl-stop" class="btn-stop" type="button">
+            ⏹ STOP Pemantauan
+          </button>
+        </div>
+
+        <div id="box-control-feedback" class="feedback-box">
+          <!-- dynamic feedback -->
+        </div>
+
+        <div style="margin-top: 18px;">
+          <h2 style="font-size: 14px; margin-bottom: 8px;">Daftar Konfirmasi (ACK) Terakhir:</h2>
+          <div id="box-ack-list" class="mono muted" style="font-size: 12px; background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px; min-height: 48px;">
+            Belum ada balasan ACK.
+          </div>
+        </div>
+      </section>
+
+      <!-- Pengaturan Ambang & Jadwal -->
+      <section class="card">
+        <h2>Pengaturan Ambang & Jadwal</h2>
+        <p class="muted">Perubahan akan disimpan dan dikirim otomatis via perintah kontrol SET_CONFIG ke HP.</p>
+
+        <form id="form-config">
+          <div class="form-row">
+            <label>
+              Jadwal Mulai (HH:MM)
+              <input type="text" id="cfg-schedule-start" name="SCHEDULE_START" pattern="^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$" required placeholder="17:30">
+            </label>
+            <label>
+              Jadwal Selesai (HH:MM)
+              <input type="text" id="cfg-schedule-end" name="SCHEDULE_END" pattern="^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$" required placeholder="22:00">
+            </label>
+          </div>
+
+          <div class="form-row">
+            <label>
+              Ambang Cahaya / Lux (Terang)
+              <input type="number" id="cfg-lux-threshold" name="LUX_THRESHOLD" min="1" step="1" required placeholder="150">
+            </label>
+            <label>
+              Ambang Suara Relatif (Sepi)
+              <input type="number" id="cfg-sound-threshold" name="SOUND_THRESHOLD" min="0.001" max="1" step="0.001" required placeholder="0.05">
+            </label>
+          </div>
+
+          <div class="form-row">
+            <label>
+              Durasi Konfirmasi (Interval)
+              <input type="number" id="cfg-confirmation-window" name="CONFIRMATION_WINDOW" min="1" max="20" required placeholder="3">
+            </label>
+            <label>
+              Interval Publish HP (Detik)
+              <input type="number" id="cfg-interval-s" name="INTERVAL_S" min="1" max="300" required placeholder="10">
+            </label>
+          </div>
+
+          <label>
+            Batas Timeout Data Stale (Detik)
+            <input type="number" id="cfg-data-timeout-s" name="DATA_TIMEOUT_S" min="5" max="600" required placeholder="30">
+          </label>
+
+          <button id="btn-save-config" type="submit" class="btn-primary" style="width: 100%; margin-top: 10px;">
+            💾 Simpan & Sinkronkan Konfigurasi
+          </button>
+        </form>
+
+        <div id="box-config-feedback" class="feedback-box">
+          <!-- config feedback -->
+        </div>
+      </section>
+    </div>
+
+    <!-- Info Telemetri Sistem -->
+    <section class="card" style="padding: 16px 20px;">
+      <dl>
+        <div>
+          <dt>Pesan Diterima:</dt>
+          <dd id="meta-received">0</dd>
+        </div>
+        <div>
+          <dt>Pesan Ditolak / Invalid:</dt>
+          <dd id="meta-invalid">0</dd>
+        </div>
+        <div>
+          <dt>Device ID HP:</dt>
+          <dd id="meta-device-id">--</dd>
+        </div>
+        <div>
+          <dt>Sensor Cahaya Aktif:</dt>
+          <dd id="meta-valid-light">--</dd>
+        </div>
+        <div>
+          <dt>Sensor Suara Aktif:</dt>
+          <dd id="meta-valid-audio">--</dd>
+        </div>
+      </dl>
+    </section>
+  </main>
+
+  <footer>
+    <p>LeaveLight IoT Platform &bull; Edge 1 (Termux Android) &rarr; HiveMQ TLS &rarr; Edge 2 (Laptop Rule Engine) &bull; 2026</p>
+  </footer>
+
+  <!-- Dashboard JavaScript Logic -->
+  <script>
+    let chartInstance = null;
+    let configLoaded = false;
+    let lastReceivedTimestamp = null;
+
+    // Elements
+    const badgeBroker = document.getElementById("badge-broker");
+    const textBroker = document.getElementById("text-broker");
+    const badgeDevice = document.getElementById("badge-device");
+    const textDevice = document.getElementById("text-device");
+    const badgeSim = document.getElementById("badge-simulation");
+
+    const sectionStatus = document.getElementById("section-status");
+    const badgeStatusPill = document.getElementById("badge-status-pill");
+    const valStatusMain = document.getElementById("val-status-main");
+    const valStatusReason = document.getElementById("val-status-reason");
+
+    const textStreak = document.getElementById("text-streak-counter");
+    const barStreak = document.getElementById("bar-streak-fill");
+
+    const valLux = document.getElementById("val-lux");
+    const valLuxSmooth = document.getElementById("val-lux-smooth");
+    const valLuxThreshold = document.getElementById("val-lux-threshold");
+    const valSound = document.getElementById("val-sound");
+    const valSoundThreshold = document.getElementById("val-sound-threshold");
+    const valDataAge = document.getElementById("val-data-age");
+    const valLastReceived = document.getElementById("val-last-received");
+    const badgeFreshness = document.getElementById("badge-freshness");
+    const valSchedule = document.getElementById("val-schedule");
+    const valScheduleState = document.getElementById("val-schedule-state");
+    const valWindowSize = document.getElementById("val-window-size");
+
+    const metaReceived = document.getElementById("meta-received");
+    const metaInvalid = document.getElementById("meta-invalid");
+    const metaDeviceId = document.getElementById("meta-device-id");
+    const metaValidLight = document.getElementById("meta-valid-light");
+    const metaValidAudio = document.getElementById("meta-valid-audio");
+
+    const tbodyEvents = document.getElementById("tbody-events");
+    const badgeEventCount = document.getElementById("badge-event-count");
+    const tbodyHistory = document.getElementById("tbody-telemetry-history");
+
+    // Init Chart.js if CDN loaded
+    function initChart() {
+      if (window.chartCdnFailed || typeof Chart === "undefined") {
+        document.getElementById("btn-toggle-table").click();
+        return;
+      }
+      const ctx = document.getElementById("telemetryChart").getContext("2d");
+      chartInstance = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: "Lux (Mentah)",
+              data: [],
+              borderColor: "rgba(56, 189, 248, 0.45)",
+              backgroundColor: "rgba(56, 189, 248, 0.05)",
+              borderWidth: 1.5,
+              borderDash: [4, 4],
+              yAxisID: "yLux",
+              tension: 0.2,
+              pointRadius: 2,
+            },
+            {
+              label: "Lux Smooth",
+              data: [],
+              borderColor: "#06b6d4",
+              backgroundColor: "rgba(6, 182, 212, 0.15)",
+              borderWidth: 2.5,
+              yAxisID: "yLux",
+              tension: 0.3,
+              fill: true,
+              pointRadius: 3,
+            },
+            {
+              label: "Level Suara Relatif (RMS)",
+              data: [],
+              borderColor: "#f59e0b",
+              backgroundColor: "rgba(245, 158, 11, 0.1)",
+              borderWidth: 2,
+              yAxisID: "ySound",
+              tension: 0.3,
+              pointRadius: 3,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: {
+              labels: { color: "#94a3b8", font: { family: "'Plus Jakarta Sans', sans-serif" } }
+            },
+            tooltip: {
+              backgroundColor: "rgba(15, 23, 42, 0.9)",
+              titleColor: "#f1f5f9",
+              bodyColor: "#cbd5e1",
+              borderColor: "rgba(255, 255, 255, 0.1)",
+              borderWidth: 1,
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: "rgba(255, 255, 255, 0.05)" },
+              ticks: { color: "#64748b", maxTicksLimit: 10 }
+            },
+            yLux: {
+              type: "linear",
+              position: "left",
+              grid: { color: "rgba(255, 255, 255, 0.05)" },
+              ticks: { color: "#38bdf8" },
+              title: { display: true, text: "Lux (lx)", color: "#38bdf8" }
+            },
+            ySound: {
+              type: "linear",
+              position: "right",
+              grid: { drawOnChartArea: false },
+              ticks: { color: "#f59e0b" },
+              title: { display: true, text: "Level Suara Relatif", color: "#f59e0b" }
+            }
+          }
+        }
+      });
+    }
+
+    // Toggle Fallback Table
+    document.getElementById("btn-toggle-table").addEventListener("click", () => {
+      const fb = document.getElementById("table-telemetry-fallback");
+      const wrapper = document.getElementById("chart-wrapper");
+      if (fb.classList.contains("hidden")) {
+        fb.classList.remove("hidden");
+        document.getElementById("btn-toggle-table").textContent = "Sembunyikan Tabel Fallback";
+      } else {
+        fb.classList.add("hidden");
+        document.getElementById("btn-toggle-table").textContent = "Tampilkan Tabel Fallback";
+      }
+    });
+
+    // Helper: update status theme
+    function applyStatusTheme(status) {
+      sectionStatus.setAttribute("data-status", status);
+      valStatusMain.textContent = status;
+      badgeStatusPill.textContent = status;
+
+      badgeStatusPill.className = "badge";
+      if (status === "NORMAL") badgeStatusPill.classList.add("ok");
+      else if (status === "PERIKSA RUANGAN") badgeStatusPill.classList.add("alert");
+      else if (status === "PEMANTAUAN") badgeStatusPill.classList.add("monitoring");
+      else if (status === "STANDBY") badgeStatusPill.classList.add("standby");
+      else badgeStatusPill.classList.add("problem");
+    }
+
+    // Fetch Status API
+    async function updateStatus() {
+      try {
+        const res = await fetch("/api/status");
+        if (!res.ok) throw new Error("Gagal mengambil status");
+        const data = await res.json();
+
+        // Broker state
+        if (data.broker) {
+          if (data.broker.connected) {
+            badgeBroker.className = "badge ok";
+            textBroker.textContent = "Broker: Tersambung";
+          } else {
+            badgeBroker.className = "badge bad";
+            textBroker.textContent = data.broker.error || "Broker Terputus";
+          }
+        }
+
+        metaReceived.textContent = data.received || 0;
+        metaInvalid.textContent = data.invalid || 0;
+
+        const latest = data.latest;
+        if (!latest) {
+          valStatusReason.textContent = "Menunggu data telemetri pertama dari HP...";
+          return;
+        }
+
+        // Status update
+        applyStatusTheme(latest.status || "NORMAL");
+        valStatusReason.textContent = latest.reason || "";
+
+        // Sensor Values
+        valLux.textContent = latest.lux !== null ? Number(latest.lux).toFixed(1) : "--";
+        valLuxSmooth.textContent = latest.lux_smooth !== null ? Number(latest.lux_smooth).toFixed(1) : "--";
+        valSound.textContent = latest.sound_level_relative !== null ? Number(latest.sound_level_relative).toFixed(3) : "--";
+
+        // Streak bar
+        const streak = latest.streak || 0;
+        const windowSize = parseInt(valWindowSize.textContent) || 3;
+        textStreak.textContent = `${streak} / ${windowSize} Interval`;
+        const pct = Math.min(100, Math.round((streak / windowSize) * 100));
+        barStreak.style.width = `${pct}%`;
+
+        // Device & Simulation badges
+        if (latest.simulation_mode) {
+          badgeSim.classList.remove("hidden");
+        } else {
+          badgeSim.classList.add("hidden");
+        }
+
+        metaDeviceId.textContent = latest.device_id || "--";
+        metaValidLight.textContent = latest.valid_light ? "Normal (Aktif)" : "Gagal/Mati";
+        metaValidAudio.textContent = latest.valid_audio ? "Normal (Aktif)" : "Gagal/Mati";
+
+        // Schedule
+        if (latest.schedule) {
+          valSchedule.textContent = latest.schedule;
+        }
+
+        // Timestamp & Freshness
+        if (latest.received_at) {
+          lastReceivedTimestamp = new Date(latest.received_at);
+          valLastReceived.textContent = lastReceivedTimestamp.toLocaleTimeString("id-ID");
+          badgeDevice.className = "badge ok";
+          textDevice.textContent = `HP: Aktif (${latest.device_id})`;
+        }
+
+      } catch (err) {
+        console.warn("Status poll error:", err);
+        badgeBroker.className = "badge bad";
+        textBroker.textContent = "Laptop: Offline";
+      }
+    }
+
+    // Freshness interval timer (every 1s)
+    setInterval(() => {
+      if (!lastReceivedTimestamp) return;
+      const elapsed = Math.round((new Date() - lastReceivedTimestamp) / 1000);
+      valDataAge.textContent = elapsed;
+      if (elapsed > 30) {
+        badgeFreshness.className = "badge bad";
+        badgeFreshness.textContent = "Stale";
+      } else {
+        badgeFreshness.className = "badge ok";
+        badgeFreshness.textContent = "Segar";
+      }
+    }, 1000);
+
+    // Fetch History & Update Chart / Fallback Table
+    async function updateHistory() {
+      try {
+        const res = await fetch("/api/history?limit=30");
+        if (!res.ok) return;
+        const rows = await res.json();
+        if (!rows || rows.length === 0) return;
+
+        const labels = [];
+        const luxData = [];
+        const smoothData = [];
+        const soundData = [];
+
+        // Build fallback table rows
+        let tableHtml = "";
+        rows.forEach(r => {
+          const timeStr = r.received_at ? new Date(r.received_at).toLocaleTimeString("id-ID") : "--";
+          labels.push(timeStr);
+          luxData.push(r.lux);
+          smoothData.push(r.lux_smooth);
+          soundData.push(r.sound_level_relative);
+
+          tableHtml += `
+            <tr>
+              <td class="mono">${timeStr}</td>
+              <td class="mono">${r.lux !== null ? r.lux : '--'}</td>
+              <td class="mono">${r.lux_smooth !== null ? r.lux_smooth : '--'}</td>
+              <td class="mono">${r.sound_level_relative !== null ? r.sound_level_relative : '--'}</td>
+              <td>${r.valid_light && r.valid_audio ? '<span class="badge ok" style="padding:2px 8px;font-size:10px;">Lengkap</span>' : '<span class="badge bad" style="padding:2px 8px;font-size:10px;">Parsial</span>'}</td>
+              <td><span class="mono">${r.status || 'NORMAL'}</span></td>
+            </tr>
+          `;
+        });
+
+        tbodyHistory.innerHTML = tableHtml;
+
+        if (chartInstance) {
+          chartInstance.data.labels = labels;
+          chartInstance.data.datasets[0].data = luxData;
+          chartInstance.data.datasets[1].data = smoothData;
+          chartInstance.data.datasets[2].data = soundData;
+          chartInstance.update("none");
+        }
+      } catch (err) {
+        console.warn("History poll error:", err);
+      }
+    }
+
+    // Fetch Events List
+    async function updateEvents() {
+      try {
+        const res = await fetch("/api/events");
+        if (!res.ok) return;
+        const events = await res.json();
+
+        badgeEventCount.textContent = `${events.length} Event`;
+        if (events.length === 0) {
+          tbodyEvents.innerHTML = `<tr><td colspan="8" class="muted" style="text-align:center;">Belum ada event tercatat.</td></tr>`;
+          return;
+        }
+
+        let html = "";
+        events.forEach(ev => {
+          const isChecked = Boolean(ev.checked);
+          const trClass = isChecked ? "checked" : "";
+          const timeStr = new Date(ev.created_at).toLocaleTimeString("id-ID");
+
+          html += `
+            <tr class="${trClass}">
+              <td class="mono">#${ev.id}</td>
+              <td class="mono">${timeStr}</td>
+              <td>${ev.device_id}</td>
+              <td class="mono">${ev.lux !== null ? ev.lux : '--'} lx</td>
+              <td class="mono">${ev.sound_level_relative !== null ? ev.sound_level_relative : '--'}</td>
+              <td style="max-width: 280px; font-size: 12px;">${ev.reason}</td>
+              <td>
+                ${isChecked 
+                  ? `<span class="badge ok" style="padding:2px 8px;font-size:11px;">Telah Diperiksa (${ev.checked_at ? new Date(ev.checked_at).toLocaleTimeString("id-ID") : ''})</span>`
+                  : `<span class="badge alert" style="padding:2px 8px;font-size:11px;">Belum Diperiksa</span>`
+                }
+              </td>
+              <td>
+                ${!isChecked 
+                  ? `<button class="btn-sm btn-primary" onclick="markEventChecked(${ev.id})">Tandai Selesai</button>` 
+                  : `<span class="muted" style="font-size:12px;">Selesai</span>`
+                }
+              </td>
+            </tr>
+          `;
+        });
+        tbodyEvents.innerHTML = html;
+      } catch (err) {
+        console.warn("Events poll error:", err);
+      }
+    }
+
+    // Mark Event as Checked
+    async function markEventChecked(id) {
+      try {
+        const res = await fetch(`/api/events/${id}/check`, { method: "POST" });
+        if (res.ok) {
+          updateEvents();
+        } else {
+          alert("Gagal menandai event.");
+        }
+      } catch (err) {
+        alert("Error menghubungi server: " + err);
+      }
+    }
+
+    // Control Commands (START / STOP)
+    async function sendControl(cmd) {
+      const box = document.getElementById("box-control-feedback");
+      box.className = "feedback-box show";
+      box.textContent = `Mengirim perintah ${cmd} ke broker...`;
+
+      try {
+        const res = await fetch("/api/control", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ command: cmd })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          box.className = "feedback-box show success";
+          box.textContent = `Perintah ${cmd} terkirim! (Request ID: ${data.request_id}). Menunggu ACK dari HP...`;
+        } else {
+          box.className = "feedback-box show error";
+          box.textContent = `Gagal: ${data.error}`;
+        }
+      } catch (err) {
+        box.className = "feedback-box show error";
+        box.textContent = `Kesalahan jaringan: ${err.message}`;
+      }
+    }
+
+    document.getElementById("btn-ctrl-start").addEventListener("click", () => sendControl("START"));
+    document.getElementById("btn-ctrl-stop").addEventListener("click", () => sendControl("STOP"));
+
+    // Poll Drained ACKs
+    async function pollAcks() {
+      try {
+        const res = await fetch("/api/acks");
+        if (!res.ok) return;
+        const acks = await res.json();
+        if (acks && acks.length > 0) {
+          const list = document.getElementById("box-ack-list");
+          acks.forEach(ack => {
+            const statusText = ack.accepted ? "Diterima (OK)" : `Ditolak (${ack.reason || 'Alasan tidak diberikan'})`;
+            list.innerHTML = `[${new Date().toLocaleTimeString("id-ID")}] Device: ${ack.device_id} | Req: ${ack.request_id} &rarr; <b>${statusText}</b><br>` + list.innerHTML;
+          });
+        }
+      } catch (err) {
+        console.warn("ACK poll error:", err);
+      }
+    }
+
+    // Save Config Form
+    document.getElementById("form-config").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const box = document.getElementById("box-config-feedback");
+      box.className = "feedback-box show";
+      box.textContent = "Menyimpan dan menyinkronkan konfigurasi...";
+
+      const payload = {
+        SCHEDULE_START: document.getElementById("cfg-schedule-start").value,
+        SCHEDULE_END: document.getElementById("cfg-schedule-end").value,
+        LUX_THRESHOLD: parseFloat(document.getElementById("cfg-lux-threshold").value),
+        SOUND_THRESHOLD: parseFloat(document.getElementById("cfg-sound-threshold").value),
+        CONFIRMATION_WINDOW: parseInt(document.getElementById("cfg-confirmation-window").value),
+        INTERVAL_S: parseInt(document.getElementById("cfg-interval-s").value),
+        DATA_TIMEOUT_S: parseInt(document.getElementById("cfg-data-timeout-s").value)
+      };
+
+      try {
+        const res = await fetch("/api/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok) {
+          box.className = "feedback-box show success";
+          const mqttSent = data.mqtt && data.mqtt.sent ? `SET_CONFIG dipublish ke MQTT (ID: ${data.mqtt.request_id})` : "Disimpan lokal (tanpa broker)";
+          box.textContent = `Konfigurasi berhasil disimpan! ${mqttSent}`;
+          populateConfig(data.config);
+        } else {
+          box.className = "feedback-box show error";
+          box.textContent = `Gagal menyimpan: ${data.error}`;
+        }
+      } catch (err) {
+        box.className = "feedback-box show error";
+        box.textContent = `Kesalahan jaringan: ${err.message}`;
+      }
+    });
+
+    function populateConfig(cfg) {
+      if (!cfg) return;
+      if (cfg.SCHEDULE_START) document.getElementById("cfg-schedule-start").value = cfg.SCHEDULE_START;
+      if (cfg.SCHEDULE_END) document.getElementById("cfg-schedule-end").value = cfg.SCHEDULE_END;
+      if (cfg.LUX_THRESHOLD) {
+        document.getElementById("cfg-lux-threshold").value = cfg.LUX_THRESHOLD;
+        valLuxThreshold.textContent = cfg.LUX_THRESHOLD;
+      }
+      if (cfg.SOUND_THRESHOLD) {
+        document.getElementById("cfg-sound-threshold").value = cfg.SOUND_THRESHOLD;
+        valSoundThreshold.textContent = cfg.SOUND_THRESHOLD;
+      }
+      if (cfg.CONFIRMATION_WINDOW) {
+        document.getElementById("cfg-confirmation-window").value = cfg.CONFIRMATION_WINDOW;
+        valWindowSize.textContent = cfg.CONFIRMATION_WINDOW;
+      }
+      if (cfg.INTERVAL_S) document.getElementById("cfg-interval-s").value = cfg.INTERVAL_S;
+      if (cfg.DATA_TIMEOUT_S) document.getElementById("cfg-data-timeout-s").value = cfg.DATA_TIMEOUT_S;
+    }
+
+    // Initial Load
+    window.addEventListener("DOMContentLoaded", () => {
+      initChart();
+      updateStatus();
+      updateHistory();
+      updateEvents();
+      pollAcks();
+
+      // Periodic Pollers
+      setInterval(updateStatus, 2000);
+      setInterval(updateHistory, 3000);
+      setInterval(updateEvents, 4000);
+      setInterval(pollAcks, 2500);
+    });
+  </script>
+</body>
+</html>
