@@ -11,6 +11,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 import wave
 from pathlib import Path
 
@@ -68,14 +69,31 @@ def measure_sound_level_relative(duration_s: int = 3) -> tuple[float | None, boo
         wav_target = Path(tmpdir) / "segment.wav"
 
         try:
-            # 1. Mulai rekam
+            # Pastikan tidak ada sesi rekaman sebelumnya yang menggantung
+            try:
+                subprocess.run(["termux-microphone-record", "-q"], capture_output=True, timeout=2)
+            except Exception:
+                pass
+
+            # 1. Mulai rekam (termux-microphone-record berjalan asinkron di latar)
             cmd_record = [
                 "termux-microphone-record",
-                "-d",
                 "-f", str(raw_record),
                 "-l", str(duration_s),
             ]
             subprocess.run(cmd_record, capture_output=True, timeout=duration_s + 4, check=True)
+
+            # Tunggu proses perekaman aktual selesai di latar belakang + buffer flushing
+            time.sleep(duration_s + 0.5)
+
+            # Pastikan perintah stop rekaman dikirim agar file MP4/M4A terfinalisasi (header moov ditulis)
+            try:
+                subprocess.run(["termux-microphone-record", "-q"], capture_output=True, timeout=2)
+            except Exception:
+                pass
+
+            # Beri jeda sejenak agar OS selesai menulis file ke disk
+            time.sleep(0.3)
 
             if not raw_record.exists() or raw_record.stat().st_size == 0:
                 log.warning("rekaman audio kosong atau tidak terbentuk")

@@ -30,12 +30,22 @@ def detect_light_sensor() -> str | None:
             check=True
         )
         data = json.loads(proc.stdout)
-        sensors = data.get("sensors", [])
+        if isinstance(data, dict):
+            sensors = data.get("sensors", [])
+        elif isinstance(data, list):
+            sensors = data
+        else:
+            sensors = []
+
         for s in sensors:
-            name = s.get("name", "")
-            stype = str(s.get("type", "")).lower()
-            if "light" in name.lower() or "light" in stype or s.get("type") == 5:
-                return name
+            if isinstance(s, dict):
+                name = s.get("name", "")
+                stype = str(s.get("type", "")).lower()
+                if "light" in name.lower() or "light" in stype or s.get("type") == 5:
+                    return name
+            elif isinstance(s, str):
+                if "light" in s.lower() or "lux" in s.lower():
+                    return s
         return None
     except Exception as exc:
         log.warning("gagal deteksi sensor cahaya: %s", exc)
@@ -47,6 +57,12 @@ def read_light(sensor_name: str | None = None) -> tuple[float | None, bool]:
     if not is_termux_sensor_available():
         return None, False
 
+    # Bersihkan listener sebelumnya agar tidak conflict / hanging di Termux:API
+    try:
+        subprocess.run(["termux-sensor", "-c"], capture_output=True, timeout=2)
+    except Exception:
+        pass
+
     cmd = ["termux-sensor", "-n", "1"]
     if sensor_name:
         cmd.extend(["-s", sensor_name])
@@ -57,18 +73,34 @@ def read_light(sensor_name: str | None = None) -> tuple[float | None, bool]:
             return None, False
 
         data = json.loads(proc.stdout)
-        # Termux:API format: {"sensor_name": {"values": [val, ...]}}
-        # atau langsung dict sensor
-        for k, v in data.items():
-            if isinstance(v, dict) and "values" in v and v["values"]:
-                raw_val = v["values"][0]
+        if isinstance(data, list) and len(data) > 0:
+            data = data[0]
+
+        if isinstance(data, dict):
+            # Format: {"values": [val, ...]}
+            if "values" in data and isinstance(data["values"], list) and data["values"]:
+                raw_val = data["values"][0]
                 lux = float(raw_val)
                 if 0 <= lux <= 200000:
                     return lux, True
-                else:
-                    log.warning("lux di luar rentang: %f", lux)
-                    return None, False
+
+            # Format: {"sensor_name": {"values": [val, ...]}}
+            for k, v in data.items():
+                if isinstance(v, dict) and "values" in v and v["values"]:
+                    raw_val = v["values"][0]
+                    lux = float(raw_val)
+                    if 0 <= lux <= 200000:
+                        return lux, True
+                    else:
+                        log.warning("lux di luar rentang: %f", lux)
+                        return None, False
+
         return None, False
     except Exception as exc:
         log.warning("gagal membaca sensor cahaya: %s", exc)
         return None, False
+    finally:
+        try:
+            subprocess.run(["termux-sensor", "-c"], capture_output=True, timeout=2)
+        except Exception:
+            pass
